@@ -52,6 +52,7 @@ set (components
   quadrature
   tensors
   transformations
+  apply_fmwt
 )
 
 foreach (component IN LISTS components)
@@ -60,7 +61,7 @@ endforeach ()
 
 if (build_OpenBLAS)
   add_dependencies (tensors openblas-ext)
-  set (LINALG_LIBS ${OpenBLAS_PATH}/lib/libopenblas.so)
+  set (LINALG_LIBS ${OpenBLAS_PATH}/lib/libopenblas.dylib)
 endif ()
 
 target_link_libraries (coefficients
@@ -101,6 +102,7 @@ set (main_app_link_deps
   quadrature
   tensors
   transformations
+  apply_fmwt
 )
 
 foreach (link_dep IN LISTS main_app_link_deps)

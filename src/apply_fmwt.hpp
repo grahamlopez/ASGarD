@@ -10,10 +10,10 @@
 #include <vector>
 
 template<typename P>
-fk::matrix<P> apply_fmwt(fk::matrix<P> matrix1,fk::matrix<P> matrix2);
+fk::matrix<P> apply_fmwt(fk::matrix<P> matrix1,fk::matrix<P> matrix2, int const kdeg, int const lev, int const isLeft, int const isTrans);
 
 extern template fk::matrix<double>
-apply_fmwt(fk::matrix<double> matrix1,fk::matrix<double> matrix2);
+apply_fmwt(fk::matrix<double> matrix1,fk::matrix<double> matrix2, int const kdeg, int const lev, int const isLeft, int const isTrans);
 extern template fk::matrix<float>
-apply_fmwt(fk::matrix<float> matrix1,fk::matrix<float> matrix2);
+apply_fmwt(fk::matrix<float> matrix1,fk::matrix<float> matrix2, int const kdeg, int const lev, int const isLeft, int const isTrans);
 
