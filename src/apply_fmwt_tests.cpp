@@ -11,7 +11,7 @@ TEMPLATE_TEST_CASE("apply_fmwt", "[apply_fmwt]", double, float)
     auto first_it = first.begin();
     std::for_each(second.begin(), second.end(), [&first_it](auto &second_elem) {
       REQUIRE(Approx(*first_it++)
-                  .epsilon(std::numeric_limits<TestType>::epsilon() * 1e3) ==
+                  .margin(std::numeric_limits<TestType>::epsilon()*0.1) ==
               second_elem);
     });
   };
@@ -120,10 +120,12 @@ TEMPLATE_TEST_CASE("apply_fmwt", "[apply_fmwt]", double, float)
     auto const productLeftTrans = apply_fmwt<TestType>(fmwt,mat1,kdeg,lev,isLeft,isTrans);
     //productLeftFull.print("productLeftTransFull");	
     //productLeft.print("productLeftTrans");	
-    fk::matrix<TestType> difference = productLeftTransFull - productLeftTrans;
+    fk::matrix<TestType> difference = productLeftTrans - productLeftTransFull;
+    TestType maxdiff = *std::max_element(difference.begin(),difference.end());
     //difference.print("difference");
     TestType x1;
     std::cout << "print " << typeid(x1).name() << std::endl; 
+    std::cout << "max diff " << maxdiff << std::endl; 
     //fk::matrix<TestType> sub1 = productLeftTransFull.extract_submatrix(0,0,4,4);
     //fk::matrix<TestType> sub2 = productLeftTrans.extract_submatrix(0,0,4,4);
     //sub1.print("sub1");
