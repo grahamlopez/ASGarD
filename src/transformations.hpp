@@ -10,17 +10,12 @@
 #include <vector>
 
 template<typename P>
-std::array<fk::matrix<P>, 6> generate_multi_wavelets(int const degree);
-
-template<typename P>
-fk::vector<P> combine_dimensions(dimension<P> const, element_table const &,
-                                 std::vector<fk::vector<P>> const &, P const);
-
-template<typename P, typename R = P>
-fk::matrix<R> operator_two_scale(dimension<P> const dim);
+fk::vector<P>
+combine_dimensions(int const, element_table const &,
+                   std::vector<fk::vector<P>> const &, P const = 1.0);
 
 template<typename P, typename F>
-fk::vector<P> forward_transform(dimension<P> const dim, F function)
+fk::vector<P> forward_transform(dimension<P> const &dim, F function)
 {
   int const num_levels = dim.get_level();
   int const degree     = dim.get_degree();
@@ -36,19 +31,19 @@ fk::vector<P> forward_transform(dimension<P> const dim, F function)
   // return below
   static_assert(std::is_invocable_v<decltype(function), fk::vector<P>>);
 
-  // TODO may remove this call if want to create the FMWT matrix once and store
-  // it in the appropriate dimension object passed to this function
-
-  fk::matrix<P> const forward_trans = operator_two_scale<P>(dim);
+  fk::matrix<P> const forward_trans(dim.get_to_basis_operator());
 
   // get the Legendre-Gauss nodes and weights on the domain
   // [-1,+1] for performing quadrature.
-  int const quadrature_num    = 10;
-  auto const [roots, weights] = legendre_weights<P>(quadrature_num, -1, 1);
+  // we do the two-step store because we cannot have 'static' bindings
+  int const quadrature_num = 10;
+  static const auto legendre_values =
+      legendre_weights<P>(quadrature_num, -1, 1);
+  auto const [roots, weights] = legendre_values;
 
   // get grid spacing.
   // hate this name TODO
-  int const n                  = static_cast<int>(std::pow(2, num_levels));
+  int const n                  = two_raised_to(num_levels);
   int const degrees_freedom_1d = degree * n;
 
   // get the Legendre basis function evaluated at the Legendre-Gauss nodes   //
@@ -89,7 +84,7 @@ fk::vector<P> forward_transform(dimension<P> const dim, F function)
     // generate the coefficients for DG basis
     fk::vector<P> coeffs = basis * f_here;
 
-    transformed.set(i * degree, coeffs);
+    transformed.set_subvector(i * degree, coeffs);
   }
   transformed = transformed * (normalize / 2.0);
 
@@ -112,19 +107,9 @@ fk::vector<P> forward_transform(dimension<P> const dim, F function)
   return transformed;
 }
 
-extern template std::array<fk::matrix<double>, 6>
-generate_multi_wavelets(int const degree);
-extern template std::array<fk::matrix<float>, 6>
-generate_multi_wavelets(int const degree);
-
 extern template fk::vector<double>
-combine_dimensions(dimension<double> const, element_table const &,
+combine_dimensions(int const, element_table const &,
                    std::vector<fk::vector<double>> const &, double const);
 extern template fk::vector<float>
-combine_dimensions(dimension<float> const, element_table const &,
+combine_dimensions(int const, element_table const &,
                    std::vector<fk::vector<float>> const &, float const);
-
-extern template fk::matrix<double> operator_two_scale(dimension<double> const);
-extern template fk::matrix<float> operator_two_scale(dimension<float> const);
-extern template fk::matrix<float> operator_two_scale(dimension<double> const);
-extern template fk::matrix<double> operator_two_scale(dimension<float> const);

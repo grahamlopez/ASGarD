@@ -15,11 +15,11 @@
 // issue open for this.
 template<typename P>
 static fk::matrix<double>
-volume_integral(dimension<P> const dim, term<P> const term_1D,
-                fk::matrix<double> const basis,
-                fk::matrix<double> const basis_prime,
-                fk::vector<double> const weights, fk::vector<double> const data,
-                double const normalized_domain)
+volume_integral(dimension<P> const &dim, term<P> const &term_1D,
+                fk::matrix<double> const &basis,
+                fk::matrix<double> const &basis_prime,
+                fk::vector<double> const &weights,
+                fk::vector<double> const &data, double const normalized_domain)
 {
   fk::matrix<double> const basis_transpose =
       fk::matrix<double>(basis).transpose();
@@ -67,12 +67,12 @@ volume_integral(dimension<P> const dim, term<P> const term_1D,
 // FIXME Can tim or someone help us understand inputs/outputs here?
 template<typename P>
 static std::array<fk::matrix<int>, 2>
-flux_or_boundary_indices(dimension<P> const dim, int const index)
+flux_or_boundary_indices(dimension<P> const &dim, int const index)
 {
-  int const two_to_lev     = static_cast<int>(std::pow(2, dim.get_level()));
-  int const previous_index = (index - 1) * dim.get_degree();
-  int const current_index  = index * dim.get_degree();
-  int const next_index     = (index + 1) * dim.get_degree();
+  int const two_to_lev             = two_raised_to(dim.get_level());
+  int const previous_index         = (index - 1) * dim.get_degree();
+  int const current_index          = index * dim.get_degree();
+  int const next_index             = (index + 1) * dim.get_degree();
   fk::matrix<int> const prev_mesh  = meshgrid(previous_index, dim.get_degree());
   fk::matrix<int> const curr_mesh  = meshgrid(current_index, dim.get_degree());
   fk::matrix<int> const curr_trans = fk::matrix<int>(curr_mesh).transpose();
@@ -137,10 +137,10 @@ flux_or_boundary_indices(dimension<P> const dim, int const index)
 // FIXME issue opened to clarify this function's purpose/inputs & outputs
 template<typename P>
 static fk::matrix<double>
-get_flux_operator(dimension<P> const dim, term<P> const term_1D,
+get_flux_operator(dimension<P> const &dim, term<P> const term_1D,
                   double const normalize, int const index)
 {
-  int const two_to_lev = static_cast<int>(std::pow(2, dim.get_level()));
+  int const two_to_lev = two_raised_to(dim.get_level());
   // compute the trace values (values at the left and right of each element for
   // all k) trace_left is 1 by degree trace_right is 1 by degree
   fk::matrix<double> const trace_left =
@@ -235,12 +235,12 @@ static fk::matrix<double> apply_flux_operator(fk::matrix<int> const row_indices,
 // coefficient matricies
 template<typename P>
 fk::matrix<double>
-generate_coefficients(dimension<P> const dim, term<P> const term_1D,
+generate_coefficients(dimension<P> const &dim, term<P> const term_1D,
                       double const time)
 {
   assert(time >= 0.0);
   // setup jacobi of variable x and define coeff_mat
-  int const two_to_level = static_cast<int>(std::pow(2, dim.get_level()));
+  int const two_to_level = two_raised_to(dim.get_level());
   double const normalized_domain =
       (dim.domain_max - dim.domain_min) / two_to_level;
   int const degrees_freedom_1d = dim.get_degree() * two_to_level;
@@ -252,7 +252,10 @@ generate_coefficients(dimension<P> const dim, term<P> const term_1D,
   int const quad_num = 10;
 
   // get quadrature points and weights.
-  auto const [roots, weights] = legendre_weights<double>(quad_num, -1.0, 1.0);
+  // we do the two-step store because we cannot have 'static' bindings
+  static const auto legendre_values =
+      legendre_weights<double>(quad_num, -1.0, 1.0);
+  auto const [roots, weights] = legendre_values;
 
   // get the basis functions and derivatives for all k
   auto const [legendre_poly, legendre_prime] =
@@ -266,10 +269,8 @@ generate_coefficients(dimension<P> const dim, term<P> const term_1D,
       (1.0 / std::sqrt(normalized_domain) * 2.0 / normalized_domain);
 
   // convert term input data from wavelet space to realspace
-
-  fk::matrix<double> const forward_trans = operator_two_scale<P, double>(dim);
   fk::matrix<double> const forward_trans_transpose =
-      fk::matrix<double>(forward_trans).transpose();
+      dim.get_from_basis_operator();
   fk::vector<double> const data = fk::vector<double>(term_1D.get_data());
   fk::vector<double> const data_real =
       forward_trans_transpose * fk::vector<double>(term_1D.get_data());
@@ -293,7 +294,9 @@ generate_coefficients(dimension<P> const dim, term<P> const term_1D,
     fk::vector<double> const data_real_quad = [&]() {
       // get realspace data at quadrature points
       fk::vector<double> data_real_quad =
-          basis * data_real.extract(current, current + dim.get_degree() - 1);
+          basis * fk::vector<double, mem_type::view>(
+                      data_real, current, current + dim.get_degree() - 1);
+
       // apply g_func
       std::transform(data_real_quad.begin(), data_real_quad.end(),
                      data_real_quad.begin(),
@@ -301,15 +304,16 @@ generate_coefficients(dimension<P> const dim, term<P> const term_1D,
       return data_real_quad;
     }();
 
-    // perform volume integral to get a degree x degree block //FIXME is this
-    // description correct?
+    // perform volume integral to get a degree x degree block
+    // FIXME is this description correct?
     fk::matrix<double> const block =
         volume_integral(dim, term_1D, basis, basis_prime, weights,
                         data_real_quad, normalized_domain);
     // set the block at the correct position
-    fk::matrix<double> const curr_block =
-        coefficients.extract_submatrix(current, current, dim.get_degree(),
-                                       dim.get_degree()) +
+    fk::matrix<double> curr_block =
+        fk::matrix<double, mem_type::view>(
+            coefficients, current, current + dim.get_degree() - 1, current,
+            current + dim.get_degree() - 1) +
         block;
     coefficients.set_submatrix(current, current, curr_block);
 
@@ -328,6 +332,7 @@ generate_coefficients(dimension<P> const dim, term<P> const term_1D,
 
   // transform matrix to wavelet space
   // FIXME does stiffness not need this transform?
+  fk::matrix<double> const forward_trans = dim.get_to_basis_operator();
   coefficients = forward_trans * coefficients * forward_trans_transpose;
 
   // zero out near-zero values after conversion to wavelet space
@@ -342,10 +347,10 @@ generate_coefficients(dimension<P> const dim, term<P> const term_1D,
   return coefficients;
 }
 
-template fk::matrix<double> generate_coefficients(dimension<float> const dim,
+template fk::matrix<double> generate_coefficients(dimension<float> const &dim,
                                                   term<float> const term_1D,
                                                   double const time);
 
-template fk::matrix<double> generate_coefficients(dimension<double> const dim,
+template fk::matrix<double> generate_coefficients(dimension<double> const &dim,
                                                   term<double> const term_1D,
                                                   double const time);

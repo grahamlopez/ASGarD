@@ -28,7 +28,8 @@ public:
   PDE_continuity_6d(int const num_levels = -1, int const degree = -1)
       : PDE<P>(num_levels, degree, num_dims_, num_sources_, num_terms_,
                dimensions_, terms_, sources_, exact_vector_funcs_,
-               exact_scalar_func_, do_poisson_solve_, has_analytic_soln_)
+               exact_scalar_func_, get_dt_, do_poisson_solve_,
+               has_analytic_soln_)
   {}
 
 private:
@@ -553,6 +554,12 @@ private:
   inline static std::vector<source<P>> const sources_ = {
       source0_, source1_, source2_, source3_, source4_, source5_, source6_};
 
+  static P get_dt_(dimension<P> const &dim)
+  {
+    P const x_range = dim.domain_max - dim.domain_min;
+    P const dt      = x_range / std::pow(2, dim.get_level());
+    return dt;
+  }
   // g-funcs for terms (optional)
   static P g_func_identity(P const x, P const time)
   {
@@ -587,21 +594,21 @@ private:
     // suppress compiler warnings
     ignore(x);
     ignore(time);
-    return bx;
+    return ax;
   }
   static P gvy(P const x, P const time)
   {
     // suppress compiler warnings
     ignore(x);
     ignore(time);
-    return by;
+    return ay;
   }
   static P gvz(P const x, P const time)
   {
     // suppress compiler warnings
     ignore(x);
     ignore(time);
-    return bz;
+    return az;
   }
 
   // define dimensions
@@ -643,7 +650,7 @@ private:
                    2,                            // levels
                    2,                            // degree
                    f0,                           // initial condition
-                   "x");                         // name
+                   "vx");                        // name
 
   inline static dimension<P> const vy_ =
       dimension<P>(boundary_condition::periodic, // left boundary condition
@@ -653,7 +660,7 @@ private:
                    2,                            // levels
                    2,                            // degree
                    f0,                           // initial condition
-                   "y");                         // name
+                   "vy");                        // name
 
   inline static dimension<P> const vz_ =
       dimension<P>(boundary_condition::periodic, // left boundary condition

@@ -34,6 +34,20 @@ class vector
   template<typename, mem_type>
   friend class vector;
 
+  // FIXME how to make this specific to the matrix
+  // view from vector constructor??? syntax hell
+  // will correct or make an issue on merge
+  template<typename, mem_type>
+  friend class matrix;
+  // add friend: matrix view from vector constructor
+  // in order to grant access to ref counter
+  // would like to be specific as below; can't
+  // get it to work
+  // template<mem_type omem>
+  // friend matrix<P, mem>::matrix(vector<P, omem> const &source, int const
+  // start_index,
+  //                              int const num_rows, int const num_cols);
+
 public:
   template<mem_type m_ = mem, typename = enable_for_owner<m_>>
   vector();
@@ -105,12 +119,16 @@ public:
   vector<P> operator-(vector<P, omem> const &right) const;
   template<mem_type omem>
   P operator*(vector<P, omem> const &)const;
-  vector<P> operator*(matrix<P> const &)const;
+
+  template<mem_type omem>
+  vector<P> operator*(matrix<P, omem> const &)const;
+
   vector<P> operator*(P const) const;
 
   template<mem_type omem>
   vector<P> single_column_kron(vector<P, omem> const &) const;
 
+  vector<P, mem> &scale(P const x);
   //
   // basic queries to private data
   //
@@ -129,7 +147,7 @@ public:
   fk::vector<P, mem> &resize(int const size = 0);
 
   template<mem_type omem>
-  vector<P, mem> &set(int const, vector<P, omem> const);
+  vector<P, mem> &set_subvector(int const, vector<P, omem> const);
 
   vector<P> extract(int const, int const) const;
 
@@ -142,6 +160,9 @@ public:
   iterator end() { return data() + size(); }
   const_iterator begin() const { return data(); }
   const_iterator end() const { return data() + size(); }
+
+  template<mem_type m_ = mem, typename = enable_for_owner<m_>>
+  int get_num_views() const;
 
 private:
   P *data_;  //< pointer to elements
@@ -176,6 +197,11 @@ public:
   // overload for default case - whole matrix
   template<mem_type m_ = mem, typename = enable_for_view<m_>>
   explicit matrix(fk::matrix<P, mem_type::owner> const &owner);
+
+  // create matrix view from vector
+  template<mem_type m_ = mem, typename = enable_for_view<m_>, mem_type omem>
+  explicit matrix(fk::vector<P, omem> const &source, int const num_rows,
+                  int const num_cols, int const start_index = 0);
 
   ~matrix();
 
@@ -340,14 +366,23 @@ extern "C" void dcopy_(int *n, double *x, int *incx, double *y, int *incy);
 extern "C" void scopy_(int *n, float *x, int *incx, float *y, int *incy);
 // --------------------------------------------------------------------------
 // vector-vector multiply
-// y := alpha*A*x + beta*y
+// d = x*y
 // --------------------------------------------------------------------------
 extern "C" double ddot_(int *n, double *X, int *incx, double *Y, int *incy);
 extern "C" float sdot_(int *n, float *X, int *incx, float *Y, int *incy);
 
 // --------------------------------------------------------------------------
+// vector-vector addition
+// y := ax + y
+// --------------------------------------------------------------------------
+extern "C" double
+daxpy_(int *n, double *alpha, double *X, int *incx, double *Y, int *incy);
+extern "C" float
+saxpy_(int *n, float *alpha, float *X, int *incx, float *Y, int *incy);
+
+// --------------------------------------------------------------------------
 // vector-scalar multiply
-// y := x*alpha
+// y := y*alpha
 // --------------------------------------------------------------------------
 extern "C" double dscal_(int *n, double *alpha, double *X, int *incx);
 extern "C" float sscal_(int *n, float *alpha, float *X, int *incx);
@@ -421,6 +456,88 @@ extern "C" void dgetri_(int *n, double *A, int *lda, int *ipiv, double *work,
 
 extern "C" void sgetri_(int *n, float *A, int *lda, int *ipiv, float *work,
                         int *lwork, int *info);
+
+// axpy - add the argument vector scaled by alpha
+template<typename P, mem_type mem, mem_type omem>
+vector<P, mem> &axpy(P const alpha, vector<P, omem> const &x, vector<P, mem> &y)
+{
+  assert(x.size() == y.size());
+  int n    = x.size();
+  int one  = 1;
+  P alpha_ = alpha;
+
+  if constexpr (std::is_same<P, double>::value)
+  {
+    daxpy_(&n, &alpha_, x.data(), &one, y.data(), &one);
+  }
+  else if constexpr (std::is_same<P, float>::value)
+  {
+    saxpy_(&n, &alpha_, x.data(), &one, y.data(), &one);
+  }
+  else
+  {
+    for (auto i = 0; i < x.size(); ++i)
+    {
+      y(i) = y(i) + x(i) * alpha_;
+    }
+  }
+
+  return y;
+}
+
+// copy(x,y) - copy vector x into y
+template<typename P, mem_type mem, mem_type omem>
+vector<P, mem> &copy(vector<P, omem> const &x, vector<P, mem> &y)
+{
+  assert(x.size() == y.size());
+  int n   = x.size();
+  int one = 1;
+
+  if constexpr (std::is_same<P, double>::value)
+  {
+    dcopy_(&n, x.data(), &one, y.data(), &one);
+  }
+  else if constexpr (std::is_same<P, float>::value)
+  {
+    scopy_(&n, x.data(), &one, y.data(), &one);
+  }
+  else
+  {
+    for (auto i = 0; i < x.size(); ++i)
+    {
+      y(i) = x(i);
+    }
+  }
+
+  return y;
+}
+
+// scal - scale a vector
+
+template<typename P, mem_type mem>
+vector<P, mem> &scal(P const alpha, vector<P, mem> &x)
+{
+  int one_i = 1;
+  int n     = x.size();
+  P alpha_  = alpha;
+
+  if constexpr (std::is_same<P, double>::value)
+  {
+    dscal_(&n, &alpha_, x.data(), &one_i);
+  }
+  else if constexpr (std::is_same<P, float>::value)
+  {
+    sscal_(&n, &alpha_, x.data(), &one_i);
+  }
+  else
+  {
+    for (int i = 0; i < n; ++i)
+    {
+      x(i) = x(i) * alpha_;
+    }
+  }
+  return x;
+}
 
 } // namespace fk
 
@@ -538,13 +655,13 @@ fk::vector<P, mem>::vector(vector<P, mem> const &a) : size_{a.size_}
   {
     data_      = new P[a.size()];
     ref_count_ = std::make_shared<int>(0);
+    std::memcpy(data_, a.data(), a.size() * sizeof(P));
   }
   else
   {
     data_      = a.data();
     ref_count_ = a.ref_count_;
   }
-  std::memcpy(data_, a.data(), a.size() * sizeof(P));
 }
 
 //
@@ -594,6 +711,7 @@ fk::vector<P, mem> &fk::vector<P, mem>::operator=(vector<P, mem> &&a)
 
   if constexpr (mem == mem_type::owner)
   {
+    assert(ref_count_.use_count() == 1);
     assert(a.ref_count_.use_count() == 1);
   }
 
@@ -785,7 +903,8 @@ P fk::vector<P, mem>::operator*(vector<P, omem> const &right) const
 // vector*matrix multiplication operator
 //
 template<typename P, mem_type mem>
-fk::vector<P> fk::vector<P, mem>::operator*(fk::matrix<P> const &A) const
+template<mem_type omem>
+fk::vector<P> fk::vector<P, mem>::operator*(fk::matrix<P, omem> const &A) const
 {
   // check dimension compatibility
   assert(size() == A.nrows());
@@ -814,7 +933,7 @@ fk::vector<P> fk::vector<P, mem>::operator*(fk::matrix<P> const &A) const
   }
   else
   {
-    fk::matrix<P> At = A;
+    fk::matrix<P> At(A);
     At.transpose();
 
     // vectors don't have a leading dimension...
@@ -880,6 +999,13 @@ fk::vector<P, mem>::single_column_kron(vector<P, omem> const &right) const
   }
   return product;
 }
+
+template<typename P, mem_type mem>
+fk::vector<P, mem> &fk::vector<P, mem>::scale(P const x)
+{
+  return fk::scal(x, *this);
+}
+
 //
 // utility functions
 //
@@ -964,9 +1090,12 @@ fk::vector<P, mem> &fk::vector<P, mem>::concat(vector<P, omem> const &right)
 {
   int const old_size = this->size();
   int const new_size = this->size() + right.size();
-  data_ = static_cast<P *>(std::realloc(data(), new_size * sizeof(P)));
-  size_ = new_size;
+  P *old_data{data_};
+  data_ = new P[new_size]();
+  std::memcpy(data_, old_data, old_size * sizeof(P));
   std::memcpy(data(old_size), right.data(), right.size() * sizeof(P));
+  size_ = new_size;
+  delete[] old_data;
   return *this;
 }
 
@@ -974,7 +1103,8 @@ fk::vector<P, mem> &fk::vector<P, mem>::concat(vector<P, omem> const &right)
 template<typename P, mem_type mem>
 template<mem_type omem>
 fk::vector<P, mem> &
-fk::vector<P, mem>::set(int const index, fk::vector<P, omem> const sub_vector)
+fk::vector<P, mem>::set_subvector(int const index,
+                                  fk::vector<P, omem> const sub_vector)
 {
   assert(index >= 0);
   assert((index + sub_vector.size()) <= this->size());
@@ -998,6 +1128,14 @@ fk::vector<P> fk::vector<P, mem>::extract(int const start, int const stop) const
     sub_vector(i) = (*this)(i + start);
   }
   return sub_vector;
+}
+
+// get number of outstanding views for an owner
+template<typename P, mem_type mem>
+template<mem_type, typename>
+int fk::vector<P, mem>::get_num_views() const
+{
+  return ref_count_.use_count() - 1;
 }
 //-----------------------------------------------------------------------------
 //
@@ -1086,6 +1224,35 @@ fk::matrix<P, mem>::matrix(fk::matrix<P, mem_type::owner> const &owner)
              std::max(0, owner.ncols() - 1))
 {}
 
+// create matrix view of an existing vector
+template<typename P, mem_type mem>
+template<mem_type, typename, mem_type omem>
+fk::matrix<P, mem>::matrix(fk::vector<P, omem> const &source,
+                           int const num_rows, int const num_cols,
+                           int const start_index)
+    : ref_count_(source.ref_count_)
+{
+  assert(start_index >= 0);
+  assert(num_rows > 0);
+  assert(num_cols > 0);
+
+  int const size = num_rows * num_cols;
+  assert(start_index + size <= source.size());
+
+  data_   = nullptr;
+  nrows_  = 0;
+  ncols_  = 0;
+  stride_ = 0;
+
+  if (size > 0)
+  {
+    data_   = source.data(start_index);
+    nrows_  = num_rows;
+    ncols_  = num_cols;
+    stride_ = num_rows;
+  }
+}
+
 template<typename P, mem_type mem>
 fk::matrix<P, mem>::~matrix()
 {
@@ -1108,28 +1275,28 @@ fk::matrix<P, mem>::matrix(matrix<P, mem> const &a)
   {
     data_      = new P[a.size()]();
     ref_count_ = std::make_shared<int>(0);
+
+    // for optimization - if the matrices are contiguous, use memcpy
+    // for performance
+    if (stride() == nrows() && a.stride() == a.nrows())
+    {
+      std::memcpy(data_, a.data(), a.size() * sizeof(P));
+
+      // else copy using loops. noticably slower in testing
+    }
+    else
+    {
+      for (auto j = 0; j < a.ncols(); ++j)
+        for (auto i = 0; i < a.nrows(); ++i)
+        {
+          (*this)(i, j) = a(i, j);
+        }
+    }
   }
   else
   {
     data_      = a.data();
     ref_count_ = a.ref_count_;
-  }
-
-  // for optimization - if the matrices are contiguous, use memcpy
-  // for performance
-  if (stride() == nrows() && a.stride() == a.nrows())
-  {
-    std::memcpy(data_, a.data(), a.size() * sizeof(P));
-
-    // else copy using loops. noticably slower in testing
-  }
-  else
-  {
-    for (auto j = 0; j < a.ncols(); ++j)
-      for (auto i = 0; i < a.nrows(); ++i)
-      {
-        (*this)(i, j) = a(i, j);
-      }
   }
 }
 
@@ -1173,7 +1340,7 @@ template<typename P, mem_type mem>
 template<typename PP, mem_type omem, mem_type, typename>
 fk::matrix<P, mem>::matrix(matrix<PP, omem> const &a)
     : data_{new P[a.size()]()}, nrows_{a.nrows()}, ncols_{a.ncols()},
-      stride_{nrows_}, ref_count_{std::make_shared<int>(0)}
+      stride_{a.nrows()}, ref_count_{std::make_shared<int>(0)}
 
 {
   for (auto j = 0; j < a.ncols(); ++j)
@@ -1213,7 +1380,7 @@ fk::matrix<P, mem> &fk::matrix<P, mem>::operator=(matrix<PP, omem> const &a)
 
 template<typename P, mem_type mem>
 fk::matrix<P, mem>::matrix(matrix<P, mem> &&a)
-    : data_{a.data()}, nrows_{a.nrows()}, ncols_{a.ncols()}, stride_{nrows_}
+    : data_{a.data()}, nrows_{a.nrows()}, ncols_{a.ncols()}, stride_{a.stride()}
 {
   if constexpr (mem == mem_type::owner)
   {
@@ -1237,7 +1404,8 @@ fk::matrix<P, mem> &fk::matrix<P, mem>::operator=(matrix<P, mem> &&a)
   if (&a == this)
     return *this;
 
-  assert((nrows() == a.nrows()) && (ncols() == a.ncols()));
+  assert((nrows() == a.nrows()) &&
+         (ncols() == a.ncols() && stride() == a.stride()));
 
   // check for destination orphaning; see below
   if constexpr (mem == mem_type::owner)
@@ -1494,10 +1662,12 @@ fk::matrix<P, mem> &fk::matrix<P, mem>::transpose()
       temp(j, i) = (*this)(i, j);
 
   // inelegant manual "move assignment"
-  nrows_     = temp.nrows();
-  ncols_     = temp.ncols();
+  // unlike actual move assignment, need to delete the old pointer
+  nrows_  = temp.nrows();
+  ncols_  = temp.ncols();
+  stride_ = nrows();
+  delete[] data_;
   data_      = temp.data();
-  stride_    = nrows();
   temp.data_ = nullptr;
 
   return *this;

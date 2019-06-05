@@ -11,6 +11,7 @@
 #include <typeinfo>
 #include <vector>
 
+#include "../basis.hpp"
 #include "../matlab_utilities.hpp"
 #include "../tensors.hpp"
 //
@@ -72,26 +73,52 @@ public:
       : left(left), right(right), domain_min(domain_min),
         domain_max(domain_max), initial_condition(initial_condition),
         name(name), level_(level), degree_(degree)
-  {}
+  {
+    int const dofs = degree_ * two_raised_to(level_);
+    to_basis_operator_.clear_and_resize(dofs, dofs) =
+        operator_two_scale<double>(degree_, level_);
+    from_basis_operator_.clear_and_resize(dofs, dofs) =
+        fk::matrix<double>(to_basis_operator_).transpose();
+  }
 
   int get_level() const { return level_; }
   int get_degree() const { return degree_; }
+  fk::matrix<double> const &get_to_basis_operator() const
+  {
+    return to_basis_operator_;
+  }
+  fk::matrix<double> const &get_from_basis_operator() const
+  {
+    return from_basis_operator_;
+  }
 
 private:
   void set_level(int level)
   {
     assert(level > 0);
-    level_ = level;
+    level_         = level;
+    int const dofs = degree_ * two_raised_to(level_);
+    to_basis_operator_.clear_and_resize(dofs, dofs) =
+        operator_two_scale<double>(degree_, level_);
+    from_basis_operator_.clear_and_resize(dofs, dofs) =
+        fk::matrix<double>(to_basis_operator_).transpose();
   }
 
   void set_degree(int degree)
   {
     assert(degree > 0);
-    degree_ = degree;
+    degree_        = degree;
+    int const dofs = degree_ * two_raised_to(level_);
+    to_basis_operator_.clear_and_resize(dofs, dofs) =
+        operator_two_scale<double>(degree_, level_);
+    from_basis_operator_.clear_and_resize(dofs, dofs) =
+        fk::matrix<double>(to_basis_operator_).transpose();
   }
 
   int level_;
   int degree_;
+  fk::matrix<double> to_basis_operator_;
+  fk::matrix<double> from_basis_operator_;
 
   friend class PDE<P>;
 };
@@ -184,10 +211,10 @@ public:
     this->coefficients_.clear_and_resize(degrees_freedom_1d,
                                          degrees_freedom_1d) = new_coefficients;
   }
-  fk::matrix<P> get_coefficients() const { return coefficients_; }
+  fk::matrix<P> const &get_coefficients() const { return coefficients_; }
 
   // small helper to return degrees of freedom given dimension
-  int degrees_freedom(dimension<P> const d)
+  int degrees_freedom(dimension<P> const d) const
   {
     return d.get_degree() * static_cast<int>(std::pow(2, d.get_level()));
   };
@@ -246,6 +273,8 @@ public:
 // ----------------------------------------------------------------------------
 template<typename P>
 using term_set = std::vector<std::vector<term<P>>>;
+template<typename P>
+using dt_func = std::function<P(dimension<P> const &dim)>;
 
 template<typename P>
 class PDE
@@ -262,6 +291,7 @@ public:
       std::vector<source<P>> const sources,
       std::vector<vector_func<P>> const exact_vector_funcs,
       scalar_func<P> const exact_time,
+      dt_func<P> const get_dt,
       bool const do_poisson_solve = false,
       bool const has_analytic_soln = false)
       : num_dims(num_dims),
@@ -310,6 +340,9 @@ public:
         for (int i = 0; i < static_cast<int>(term_list.size()); ++i)
         {
           term_list[i].set_data(dimensions_[i], fk::vector<P>());
+          term_list[i].set_coefficients(
+              dimensions_[i],
+              eye<P>(term_list[i].degrees_freedom(dimensions_[i])));
         }
       }
     }
@@ -332,6 +365,9 @@ public:
     {
       assert(term_list.size() == static_cast<unsigned>(num_dims));
     }
+
+    // set the dt
+    dt_ = get_dt(dimensions_[0]);
   }
 
   // public but const data.
@@ -347,10 +383,26 @@ public:
 
   virtual ~PDE() {}
 
-  std::vector<dimension<P>> get_dimensions() const { return dimensions_; }
-  term_set<P> get_terms() const { return terms_; }
+  std::vector<dimension<P>> const &get_dimensions() const
+  {
+    return dimensions_;
+  }
+  term_set<P> const &get_terms() const { return terms_; }
+
+  fk::matrix<P> const &get_coefficients(int const term, int const dim) const
+  {
+    return terms_[term][dim].get_coefficients();
+  }
+  void
+  set_coefficients(fk::matrix<P> const coeffs, int const term, int const dim)
+  {
+    terms_[term][dim].set_coefficients(dimensions_[dim], coeffs);
+  }
+
+  P get_dt() { return dt_; };
 
 private:
   std::vector<dimension<P>> dimensions_;
   term_set<P> terms_;
+  P dt_;
 };
