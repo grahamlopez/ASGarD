@@ -1,9 +1,6 @@
-#include "distribution.hpp"
-#include "matlab_utilities.hpp"
-#include "pde.hpp"
-#include "tests_general.hpp"
-#include "transformations.hpp"
-#include <numeric>
+
+
+#include <bits/stdc++.h>
 
 #include "distribution.hpp"
 #include "matlab_utilities.hpp"
