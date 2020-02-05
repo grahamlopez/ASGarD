@@ -1,5 +1,7 @@
 # ASGarD - Adaptive Sparse Grid Discretization
 
+dummy change
+
 To cite the ASGarD code in your work, please use: (TODO)
 
 The ASGarD project has the goal of building an solver specifically targeting
